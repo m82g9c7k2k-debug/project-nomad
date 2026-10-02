@@ -53,6 +53,7 @@ import {
   embedFileSchema,
   fileSourceSchema,
   estimateBatchSchema,
+  searchDocumentsSchema,
 } from '#validators/rag'
 import {
   installServiceValidator,
@@ -425,6 +426,11 @@ router
     documented(router.get('/files', [RagController, 'getStoredFiles']), {
       summary: 'List stored RAG files',
       tags: ['rag'],
+    })
+    documented(router.post('/search', [RagController, 'searchDocuments']), {
+      summary: 'Search the RAG knowledge base',
+      tags: ['rag'],
+      request: searchDocumentsSchema,
     })
     documented(router.get('/file-warnings', [RagController, 'getFileWarnings']), {
       summary: 'List RAG file warnings',
