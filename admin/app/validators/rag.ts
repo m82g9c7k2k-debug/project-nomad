@@ -38,3 +38,14 @@ export const estimateBatchSchema = vine.compile(
       .maxLength(500),
   })
 )
+
+
+export const searchDocumentsSchema = vine.compile(
+  vine.object({
+    query: vine.string().trim().minLength(1).maxLength(4000),
+    limit: vine.number().min(1).max(20).optional(),
+    scoreThreshold: vine.number().min(0).max(1).optional(),
+    collection: vine.string().trim().maxLength(100).optional(),
+    minFinalScore: vine.number().min(0).max(1).optional(),
+  })
+)
