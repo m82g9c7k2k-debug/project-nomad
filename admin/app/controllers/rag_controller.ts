@@ -7,7 +7,7 @@ import app from '@adonisjs/core/services/app'
 import { randomBytes } from 'node:crypto'
 import { sanitizeFilename } from '../utils/fs.js'
 import { basename } from 'node:path'
-import { deleteFileSchema, embedFileSchema, estimateBatchSchema, fileSourceSchema, getJobStatusSchema } from '#validators/rag'
+import { deleteFileSchema, embedFileSchema, estimateBatchSchema, fileSourceSchema, getJobStatusSchema, searchDocumentsSchema } from '#validators/rag'
 import logger from '@adonisjs/core/services/logger'
 import { sanitizeCollectionName } from '../../constants/kb_collections.js'
 
@@ -70,6 +70,32 @@ export default class RagController {
   public async getStoredFiles({ response }: HttpContext) {
     const files = await this.ragService.getStoredFiles()
     return response.status(200).json({ files })
+  }
+
+  public async searchDocuments({ request, response }: HttpContext) {
+    const reqData = await request.validateUsing(searchDocumentsSchema)
+    const collection = reqData.collection
+      ? sanitizeCollectionName(reqData.collection) ?? undefined
+      : undefined
+    const floor = { candidates: 0, belowFloor: 0 }
+
+    const results = await this.ragService.searchSimilarDocuments(
+      reqData.query,
+      reqData.limit ?? 5,
+      reqData.scoreThreshold ?? 0.3,
+      collection,
+      undefined,
+      reqData.minFinalScore ?? 0,
+      floor
+    )
+
+    return response.status(200).json({
+      query: reqData.query,
+      collection: collection ?? null,
+      count: results.length,
+      floor,
+      results,
+    })
   }
 
   public async getKnowledgeCollections({ response }: HttpContext) {
