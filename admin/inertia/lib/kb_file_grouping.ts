@@ -62,6 +62,10 @@ export interface KbFileGroup {
    * null for the collapsed admin_docs group. Not to be confused with the
    * unrelated curated ZIM-pack "collections" feature elsewhere in the app. */
   collection: string | null
+  /** Virtual library path for user uploads. */
+  folderPath?: string | null
+  /** User-defined labels for cross-folder filtering. */
+  tags?: string[]
   /** Whether this file's chunks are included in RAG search results. Always
    * true (non-toggleable) for the collapsed admin_docs group. */
   active: boolean
@@ -238,6 +242,8 @@ export function groupAndSortKbFiles(
             uploadedAt: file.uploadedAt,
             isUserUpload: file.isUserUpload,
             collection: file.collection,
+            ...(file.folderPath ? { folderPath: file.folderPath } : {}),
+            ...(file.tags?.length ? { tags: file.tags } : {}),
             active: file.active,
           })
         }
@@ -258,6 +264,8 @@ export function groupAndSortKbFiles(
         uploadedAt: file.uploadedAt,
         isUserUpload: file.isUserUpload,
         collection: file.collection,
+        ...(file.folderPath ? { folderPath: file.folderPath } : {}),
+        ...(file.tags?.length ? { tags: file.tags } : {}),
         active: file.active,
       })
     }

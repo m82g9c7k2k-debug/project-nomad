@@ -1,15 +1,17 @@
 import { RagService } from '#services/rag_service'
 import { EmbedFileJob } from '#jobs/embed_file_job'
 import KbRatioRegistry from '#models/kb_ratio_registry'
+import KbIngestState from '#models/kb_ingest_state'
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import app from '@adonisjs/core/services/app'
 import { randomBytes } from 'node:crypto'
 import { sanitizeFilename } from '../utils/fs.js'
 import { basename } from 'node:path'
-import { deleteFileSchema, embedFileSchema, estimateBatchSchema, fileSourceSchema, getJobStatusSchema } from '#validators/rag'
+import { deleteFileSchema, embedFileSchema, estimateBatchSchema, fileSourceSchema, getJobStatusSchema, searchDocumentsSchema, updateFileMetadataSchema } from '#validators/rag'
 import logger from '@adonisjs/core/services/logger'
 import { sanitizeCollectionName } from '../../constants/kb_collections.js'
+import { normalizeFolderPath, normalizeTagsInput } from '../utils/kb_metadata.js'
 
 @inject()
 export default class RagController {
@@ -22,6 +24,16 @@ export default class RagController {
     }
 
     const collection = sanitizeCollectionName(request.input('collection', null))
+    let folderPath: string | null
+    let tags: string[]
+    try {
+      folderPath = normalizeFolderPath(request.input('folderPath', null))
+      tags = normalizeTagsInput(request.input('tags', []))
+    } catch (error) {
+      return response.status(400).json({
+        error: error instanceof Error ? error.message : 'Invalid library metadata.',
+      })
+    }
 
     const randomSuffix = randomBytes(6).toString('hex')
     const sanitizedName = sanitizeFilename(uploadedFile.clientName)
@@ -33,11 +45,19 @@ export default class RagController {
       name: fileName,
     })
 
+    const state = await KbIngestState.getOrCreate(fullPath, collection ?? undefined)
+    state.collection = collection
+    state.folder_path = folderPath
+    state.tags_json = JSON.stringify(tags)
+    await state.save()
+
     // Dispatch background job for embedding
     const result = await EmbedFileJob.dispatch({
       filePath: fullPath,
       fileName,
       ...(collection ? { collection } : {}),
+      folderPath,
+      tags,
     })
 
     return response.status(202).json({
@@ -47,6 +67,8 @@ export default class RagController {
       filePath: `/${RagService.UPLOADS_STORAGE_PATH}/${fileName}`,
       alreadyProcessing: !result.created,
       ...(collection ? { collection } : {}),
+      folderPath,
+      tags,
     })
   }
   public async getActiveJobs({ response }: HttpContext) {
@@ -72,6 +94,45 @@ export default class RagController {
     return response.status(200).json({ files })
   }
 
+  public async searchDocuments({ request, response }: HttpContext) {
+    const reqData = await request.validateUsing(searchDocumentsSchema)
+    const collection = reqData.collection
+      ? sanitizeCollectionName(reqData.collection) ?? undefined
+      : undefined
+    let folderPath: string | undefined
+    let tags: string[]
+    try {
+      folderPath = normalizeFolderPath(reqData.folderPath) ?? undefined
+      tags = normalizeTagsInput(reqData.tags)
+    } catch (error) {
+      return response.status(400).json({
+        error: error instanceof Error ? error.message : 'Invalid search metadata.',
+      })
+    }
+    const floor = { candidates: 0, belowFloor: 0 }
+
+    const results = await this.ragService.searchSimilarDocuments(
+      reqData.query,
+      reqData.limit ?? 5,
+      reqData.scoreThreshold ?? 0.3,
+      collection,
+      undefined,
+      reqData.minFinalScore ?? 0,
+      floor,
+      { folderPath, tags }
+    )
+
+    return response.status(200).json({
+      query: reqData.query,
+      collection: collection ?? null,
+      folderPath: folderPath ?? null,
+      tags,
+      count: results.length,
+      floor,
+      results,
+    })
+  }
+
   public async getKnowledgeCollections({ response }: HttpContext) {
     const collections = await this.ragService.getKnowledgeCollections()
     return response.status(200).json({ collections })
@@ -92,6 +153,31 @@ export default class RagController {
       return response.status(500).json({ error: result.message })
     }
     return response.status(200).json({ message: result.message })
+  }
+
+  public async updateFileMetadata({ request, response }: HttpContext) {
+    const reqData = await request.validateUsing(updateFileMetadataSchema)
+
+    let folderPath: string | null | undefined
+    let tags: string[] | undefined
+    try {
+      folderPath =
+        reqData.folderPath === undefined ? undefined : normalizeFolderPath(reqData.folderPath)
+      tags = reqData.tags === undefined ? undefined : normalizeTagsInput(reqData.tags)
+    } catch (error) {
+      return response.status(400).json({
+        error: error instanceof Error ? error.message : 'Invalid library metadata.',
+      })
+    }
+
+    const result = await this.ragService.updateFileMetadata(reqData.source, {
+      folderPath,
+      tags,
+    })
+    if (!result.success) {
+      return response.status(500).json({ error: result.message })
+    }
+    return response.status(200).json(result)
   }
 
   public async setFileActive({ request, response }: HttpContext) {

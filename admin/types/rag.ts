@@ -41,6 +41,8 @@ export type RAGResult = {
   source?: string
   archive_title?: string
   archive_date?: string
+  folder_path?: string
+  tags?: string[]
 }
 
 export type RerankedRAGResult = Omit<RAGResult, 'keywords'> & {
@@ -198,6 +200,12 @@ export type StoredFileInfo = {
   isUserUpload: boolean
   /** Subject/category tag, or null if uncategorized. */
   collection: string | null
+  /** Virtual library folder path, independent from the physical file path.
+   * Optional for compatibility with legacy callers; getStoredFiles() supplies it. */
+  folderPath?: string | null
+  /** User-defined tags attached to the file and copied onto its chunks.
+   * Optional for compatibility with legacy callers; getStoredFiles() supplies it. */
+  tags?: string[]
   /** Whether this file's chunks are included in RAG search results. Toggling
    * this never deletes or re-embeds vectors — see #1119. */
   active: boolean

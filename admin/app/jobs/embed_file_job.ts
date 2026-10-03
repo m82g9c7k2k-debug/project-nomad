@@ -24,6 +24,8 @@ export interface EmbedFileJobParams {
   // batch's chunk count was stored while Qdrant held the full set).
   chunksSoFar?: number
   collection?: string
+  folderPath?: string | null
+  tags?: string[]
 }
 
 export class EmbedFileJob {
@@ -57,7 +59,7 @@ export class EmbedFileJob {
   }
 
   async handle(job: Job) {
-    const { filePath, fileName, batchOffset, totalArticles, collection } = job.data as EmbedFileJobParams
+    const { filePath, fileName, batchOffset, totalArticles, collection, folderPath, tags } = job.data as EmbedFileJobParams
 
     // Only the direct KB-upload controller passes `collection` on dispatch; the other
     // six dispatch sites (download auto-index, scan/sync, re-embed, local ZIM upload,
@@ -65,8 +67,19 @@ export class EmbedFileJob {
     // back to whatever the file is already assigned to, so an assignment made *before*
     // the file was indexed still reaches the vectors. Resolving it here rather than at
     // each dispatch site keeps one source of truth and covers batch continuations too.
-    const effectiveCollection =
-      collection ?? (await KbIngestState.findBy('file_path', filePath))?.collection ?? undefined
+    const ingestState = await KbIngestState.findBy('file_path', filePath)
+    const effectiveCollection = collection ?? ingestState?.collection ?? undefined
+    const effectiveFolderPath = folderPath !== undefined ? folderPath : ingestState?.folder_path ?? null
+    let effectiveTags = tags
+    if (!effectiveTags && ingestState?.tags_json) {
+      try {
+        const parsed = JSON.parse(ingestState.tags_json)
+        effectiveTags = Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === 'string') : []
+      } catch {
+        effectiveTags = []
+      }
+    }
+    effectiveTags ??= []
 
     const isZimBatch = batchOffset !== undefined
     const batchInfo = isZimBatch ? ` (batch offset: ${batchOffset})` : ''
@@ -147,7 +160,9 @@ export class EmbedFileJob {
         allowDeletion,
         batchOffset,
         onProgress,
-        effectiveCollection
+        effectiveCollection,
+        effectiveFolderPath,
+        effectiveTags
       )
 
       if (!result.success) {
@@ -204,6 +219,8 @@ export class EmbedFileJob {
           // Carry the collection across batches, otherwise only batch 1 of a ZIM
           // would be tagged and the rest would land uncategorized.
           ...(effectiveCollection ? { collection: effectiveCollection } : {}),
+          folderPath: effectiveFolderPath,
+          tags: effectiveTags,
         })
 
         // Calculate progress based on articles processed.

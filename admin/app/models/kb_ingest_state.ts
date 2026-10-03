@@ -35,6 +35,12 @@ export default class KbIngestState extends BaseModel {
   declare active: boolean
 
   @column()
+  declare folder_path: string | null
+
+  @column()
+  declare tags_json: string | null
+
+  @column()
   declare last_error: string | null
 
   @column.dateTime({ autoCreate: true })
