@@ -196,6 +196,8 @@ export default function KnowledgeBaseModal({
   const [files, setFiles] = useState<File[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadCollection, setUploadCollection] = useState<string>('')
+  const [uploadFolderPath, setUploadFolderPath] = useState<string>('')
+  const [uploadTags, setUploadTags] = useState<string>('')
   const [collectionFilter, setCollectionFilter] = useState<string>('All')
   const [manageCollectionsOpen, setManageCollectionsOpen] = useState(false)
   const [confirmDeleteSource, setConfirmDeleteSource] = useState<string | null>(null)
@@ -288,7 +290,15 @@ export default function KnowledgeBaseModal({
   })
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => api.uploadDocument(file, uploadCollection || undefined),
+    mutationFn: (file: File) =>
+      api.uploadDocument(file, {
+        collection: uploadCollection || undefined,
+        folderPath: uploadFolderPath.trim() || undefined,
+        tags: uploadTags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      }),
   })
 
   const updateCollectionMutation = useMutation({
@@ -301,6 +311,26 @@ export default function KnowledgeBaseModal({
     },
     onError: (error: any) => {
       addNotification({ type: 'error', message: error?.message || 'Failed to update collection.' })
+    },
+  })
+
+  const updateMetadataMutation = useMutation({
+    mutationFn: ({
+      source,
+      update,
+    }: {
+      source: string
+      update: { folderPath?: string | null; tags?: string[] }
+    }) => api.updateFileMetadata(source, update),
+    onSuccess: () => {
+      addNotification({ type: 'success', message: 'Library metadata updated.' })
+      queryClient.invalidateQueries({ queryKey: ['storedFiles'] })
+    },
+    onError: (error: any) => {
+      addNotification({
+        type: 'error',
+        message: error?.message || 'Failed to update library metadata.',
+      })
     },
   })
 
@@ -563,7 +593,7 @@ export default function KnowledgeBaseModal({
           modal width, which is the exact defect #1198 fixed (the Delete button falls
           off the right edge at every viewport). Measured on NOMAD3: table 1018px
           against 961px of usable width at 5xl. */}
-      <div className="bg-surface-primary rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-surface-primary rounded-lg shadow-xl max-w-[90rem] w-full max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-border-subtle shrink-0">
           <h2 className="text-2xl font-semibold text-text-primary">Knowledge Base</h2>
           <button
@@ -600,14 +630,34 @@ export default function KnowledgeBaseModal({
                   setFiles(Array.from(uploadedFiles))
                 }}
               />
-              <div className="flex justify-center items-center gap-4 my-6">
-                <label className="flex items-center gap-2 text-sm text-text-secondary">
-                  Collection:
+              <div className="flex flex-wrap justify-center items-end gap-4 my-6">
+                <label className="flex flex-col gap-1 text-sm text-text-secondary">
+                  <span>Collection</span>
                   <CollectionCombobox
                     value={uploadCollection}
                     onChange={setUploadCollection}
                     options={comboboxOptions}
                     className="w-48"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-text-secondary">
+                  <span>Folder</span>
+                  <input
+                    type="text"
+                    value={uploadFolderPath}
+                    onChange={(event) => setUploadFolderPath(event.target.value)}
+                    placeholder="Vivienda/Solar/GoodWe"
+                    className="w-64 rounded border border-border-subtle bg-surface-primary px-3 py-2 text-text-primary placeholder:text-text-muted"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-text-secondary">
+                  <span>Tags</span>
+                  <input
+                    type="text"
+                    value={uploadTags}
+                    onChange={(event) => setUploadTags(event.target.value)}
+                    placeholder="manual, inversor, bateria"
+                    className="w-64 rounded border border-border-subtle bg-surface-primary px-3 py-2 text-text-primary placeholder:text-text-muted"
                   />
                 </label>
                 <StyledButton
@@ -621,6 +671,10 @@ export default function KnowledgeBaseModal({
                   Upload
                 </StyledButton>
               </div>
+              <p className="text-xs text-text-muted text-center -mt-3 mb-3">
+                Folder is virtual and hierarchical; tags are comma-separated. Both can be changed
+                later without re-embedding the document.
+              </p>
             </div>
             <div className="border-t bg-surface-primary p-6">
               <h3 className="text-lg font-semibold text-desert-green mb-4">
@@ -942,6 +996,58 @@ export default function KnowledgeBaseModal({
                         disabled={isSaving}
                         className="w-40"
                       />
+                    )
+                  },
+                },
+                {
+                  accessor: 'folderPath',
+                  title: 'Library',
+                  noTruncate: true,
+                  render(record) {
+                    if (record.bucket === 'admin_docs' || record.isCollectionHeader) {
+                      return <span className="text-text-muted">—</span>
+                    }
+                    const isSaving =
+                      updateMetadataMutation.isPending &&
+                      updateMetadataMutation.variables?.source === record.source
+                    return (
+                      <div className="flex flex-col gap-1.5 min-w-52">
+                        <input
+                          key={`folder:${record.source}:${record.folderPath ?? ''}`}
+                          type="text"
+                          defaultValue={record.folderPath ?? ''}
+                          placeholder="Folder/path"
+                          disabled={isSaving}
+                          className="w-full rounded border border-border-subtle bg-surface-primary px-2 py-1 text-xs text-text-primary placeholder:text-text-muted"
+                          onBlur={(event) => {
+                            const next = event.currentTarget.value.trim()
+                            if (next === (record.folderPath ?? '')) return
+                            updateMetadataMutation.mutate({
+                              source: record.source,
+                              update: { folderPath: next || null },
+                            })
+                          }}
+                        />
+                        <input
+                          key={`tags:${record.source}:${(record.tags ?? []).join(',')}`}
+                          type="text"
+                          defaultValue={(record.tags ?? []).join(', ')}
+                          placeholder="tag, tag"
+                          disabled={isSaving}
+                          className="w-full rounded border border-border-subtle bg-surface-primary px-2 py-1 text-xs text-text-primary placeholder:text-text-muted"
+                          onBlur={(event) => {
+                            const next = event.currentTarget.value
+                              .split(',')
+                              .map((tag) => tag.trim())
+                              .filter(Boolean)
+                            if (next.join('\u0000') === (record.tags ?? []).join('\u0000')) return
+                            updateMetadataMutation.mutate({
+                              source: record.source,
+                              update: { tags: next },
+                            })
+                          }}
+                        />
+                      </div>
                     )
                   },
                 },
