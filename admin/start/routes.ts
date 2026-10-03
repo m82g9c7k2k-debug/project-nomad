@@ -54,6 +54,7 @@ import {
   fileSourceSchema,
   estimateBatchSchema,
   searchDocumentsSchema,
+  updateFileMetadataSchema,
 } from '#validators/rag'
 import {
   installServiceValidator,
@@ -426,6 +427,11 @@ router
     documented(router.get('/files', [RagController, 'getStoredFiles']), {
       summary: 'List stored RAG files',
       tags: ['rag'],
+    })
+    documented(router.patch('/files/metadata', [RagController, 'updateFileMetadata']), {
+      summary: 'Update RAG file library metadata',
+      tags: ['rag'],
+      request: updateFileMetadataSchema,
     })
     documented(router.post('/search', [RagController, 'searchDocuments']), {
       summary: 'Search the RAG knowledge base',
