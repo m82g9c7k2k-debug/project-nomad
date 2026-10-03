@@ -46,6 +46,17 @@ export const searchDocumentsSchema = vine.compile(
     limit: vine.number().min(1).max(20).optional(),
     scoreThreshold: vine.number().min(0).max(1).optional(),
     collection: vine.string().trim().maxLength(100).optional(),
+    folderPath: vine.string().trim().maxLength(512).optional(),
+    tags: vine.array(vine.string().trim().minLength(1).maxLength(40)).maxLength(20).optional(),
     minFinalScore: vine.number().min(0).max(1).optional(),
+  })
+)
+
+
+export const updateFileMetadataSchema = vine.compile(
+  vine.object({
+    source: vine.string().minLength(1),
+    folderPath: vine.string().trim().maxLength(512).nullable().optional(),
+    tags: vine.array(vine.string().trim().minLength(1).maxLength(40)).maxLength(20).optional(),
   })
 )
