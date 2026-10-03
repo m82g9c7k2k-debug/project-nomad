@@ -33,6 +33,7 @@ import { decideWarnings } from '../utils/kb_warning_decision.js'
 import type { FileWarning, FileWarningsResult, RetrievalFloorStats, RetrievalStages, StoredFileInfo } from '../../types/rag.js'
 import { applyRelevanceFloor } from '../utils/misc.js'
 import { KB_EVAL_COLLECTION } from '../../constants/kb_collections.js'
+import { parseStoredTags } from '../utils/kb_metadata.js'
 
 /**
  * Qdrant filter that hides the developer eval corpus from every read path that
@@ -185,6 +186,14 @@ export class RagService {
       await this.qdrant!.createPayloadIndex(collectionName, {
         field_name: 'active',
         field_schema: 'bool',
+      })
+      await this.qdrant!.createPayloadIndex(collectionName, {
+        field_name: 'folder_path',
+        field_schema: 'keyword',
+      })
+      await this.qdrant!.createPayloadIndex(collectionName, {
+        field_name: 'tags',
+        field_schema: 'keyword',
       })
 
       // Backfill: stamp `active: true` on any point that predates this field.
@@ -608,7 +617,9 @@ export class RagService {
     deleteAfterEmbedding: boolean,
     batchOffset?: number,
     onProgress?: (percent: number) => Promise<void>,
-    collection?: string
+    collection?: string,
+    folderPath?: string | null,
+    tags: string[] = []
   ): Promise<ProcessZIMFileResponse> {
     const zimExtractionService = new ZIMExtractionService()
 
@@ -642,6 +653,8 @@ export class RagService {
         // Without this the ZIM path writes points with no `collection` at all, so
         // getKnowledgeCollections() (which facets on it) never sees them.
         ...(collection ? { collection } : {}),
+        ...(folderPath ? { folder_path: folderPath } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
 
         // Article-level context
         article_title: zimChunk.articleTitle,
@@ -819,7 +832,9 @@ export class RagService {
     filepath: string,
     deleteAfterEmbedding: boolean = false,
     onProgress?: (percent: number) => Promise<void>,
-    collection?: string
+    collection?: string,
+    folderPath?: string | null,
+    tags: string[] = []
   ): Promise<{ success: boolean; message: string; chunks?: number }> {
     if (!extractedText || extractedText.trim().length === 0) {
       return {
@@ -833,6 +848,8 @@ export class RagService {
       {
         source: filepath,
         ...(collection ? { collection } : {}),
+        ...(folderPath ? { folder_path: folderPath } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
       },
       onProgress
     )
@@ -865,7 +882,9 @@ export class RagService {
     deleteAfterEmbedding: boolean = false,
     batchOffset?: number,
     onProgress?: (percent: number) => Promise<void>,
-    collection?: string
+    collection?: string,
+    folderPath?: string | null,
+    tags: string[] = []
   ): Promise<ProcessAndEmbedFileResponse> {
     try {
       const fileType = determineFileType(filepath)
@@ -884,7 +903,15 @@ export class RagService {
       // Process based on file type
       // ZIM files are handled specially since they have their own embedding workflow
       if (fileType === 'zim') {
-        return await this.processZIMFile(filepath, deleteAfterEmbedding, batchOffset, onProgress, collection)
+        return await this.processZIMFile(
+          filepath,
+          deleteAfterEmbedding,
+          batchOffset,
+          onProgress,
+          collection,
+          folderPath,
+          tags
+        )
       }
 
       // Extract text based on file type
@@ -920,7 +947,9 @@ export class RagService {
         filepath,
         deleteAfterEmbedding,
         scaledProgress,
-        collection
+        collection,
+        folderPath,
+        tags
       )
     } catch (error) {
       logger.error('[RAG] Error processing and embedding file:', error)
@@ -958,7 +987,8 @@ export class RagService {
      */
     minFinalScore: number = 0,
     /** Optional sink for the floor's counts; see RetrievalFloorStats. */
-    floorOut?: RetrievalFloorStats
+    floorOut?: RetrievalFloorStats,
+    metadataFilters: { folderPath?: string; tags?: string[] } = {}
   ): Promise<Array<{ text: string; score: number; metadata?: Record<string, any> }>> {
     try {
       logger.debug(`[RAG] Starting similarity search for query: "${query}"`)
@@ -1037,7 +1067,19 @@ export class RagService {
           // (not yet backfilled) must still be found by default. Search
           // correctness must never depend on the backfill's timing.
           must_not: [{ key: 'active', match: { value: false } }],
-          ...(collection ? { must: [{ key: 'collection', match: { value: collection } }] } : {}),
+          ...(() => {
+            const must: Array<Record<string, unknown>> = []
+            if (collection) {
+              must.push({ key: 'collection', match: { value: collection } })
+            }
+            if (metadataFilters.folderPath) {
+              must.push({ key: 'folder_path', match: { value: metadataFilters.folderPath } })
+            }
+            for (const tag of metadataFilters.tags ?? []) {
+              must.push({ key: 'tags', match: { value: tag } })
+            }
+            return must.length > 0 ? { must } : {}
+          })(),
         },
       })
 
@@ -1063,6 +1105,10 @@ export class RagService {
         // carries no equivalent embedded metadata.
         archive_title: result.payload?.archive_title as string | undefined,
         archive_date: result.payload?.archive_date as string | undefined,
+        folder_path: result.payload?.folder_path as string | undefined,
+        tags: Array.isArray(result.payload?.tags)
+          ? (result.payload.tags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+          : undefined,
       }))
 
       const rerankedResults = this.rerankResults(resultsWithMetadata, keywords, query)
@@ -1151,6 +1197,8 @@ export class RagService {
           // Citation metadata (#1179)
           archive_title: result.archive_title,
           archive_date: result.archive_date,
+          folder_path: result.folder_path,
+          tags: result.tags,
         },
       }))
     } catch (error) {
@@ -1363,6 +1411,8 @@ export class RagService {
           chunks_embedded: number
           collection: string | null
           active: boolean
+          folder_path: string | null
+          tags_json: string | null
         }
       >()
       try {
@@ -1371,7 +1421,9 @@ export class RagService {
           'state',
           'chunks_embedded',
           'collection',
-          'active'
+          'active',
+          'folder_path',
+          'tags_json'
         )
         for (const row of stateRows) {
           sources.add(row.file_path)
@@ -1379,6 +1431,8 @@ export class RagService {
             state: row.state,
             chunks_embedded: row.chunks_embedded,
             collection: row.collection,
+            folder_path: row.folder_path,
+            tags_json: row.tags_json,
             // MySQL hands back tinyint(1) as 0/1, not a boolean. Coerce here so
             // every consumer sees a real boolean -- the raw 1 reached the DOM as
             // aria-checked="1", which is not a valid ARIA value and leaves screen
@@ -1411,6 +1465,8 @@ export class RagService {
             uploadedAt: stats?.modifiedTime.toISOString() ?? null,
             isUserUpload,
             collection: row?.collection ?? null,
+            folderPath: row?.folder_path ?? null,
+            tags: parseStoredTags(row?.tags_json),
             active: row ? Boolean(row.active) : true,
           }
         })
@@ -1493,6 +1549,37 @@ export class RagService {
    * with the right value: its post-upsert re-read either sees this write, or
    * the setPayload below runs after its upsert and covers the new points.
    */
+  public async updateFileMetadata(
+    source: string,
+    folderPath: string | null,
+    tags: string[]
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      await this._ensureCollection(
+        RagService.CONTENT_COLLECTION_NAME,
+        RagService.EMBEDDING_DIMENSION
+      )
+
+      await this.qdrant!.setPayload(RagService.CONTENT_COLLECTION_NAME, {
+        payload: {
+          folder_path: folderPath,
+          tags,
+        },
+        filter: { must: [{ key: 'source', match: { value: source } }] },
+      })
+
+      const row = await KbIngestState.getOrCreate(source)
+      row.folder_path = folderPath
+      row.tags_json = JSON.stringify(tags)
+      await row.save()
+
+      return { success: true, message: 'Library metadata updated.' }
+    } catch (error) {
+      logger.error('[RAG] Error updating file library metadata:', error)
+      return { success: false, message: 'Error updating library metadata.' }
+    }
+  }
+
   public async setFileActive(
     source: string,
     active: boolean
