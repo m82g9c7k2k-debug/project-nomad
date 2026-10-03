@@ -199,6 +199,8 @@ export default function KnowledgeBaseModal({
   const [uploadFolderPath, setUploadFolderPath] = useState<string>('')
   const [uploadTags, setUploadTags] = useState<string>('')
   const [collectionFilter, setCollectionFilter] = useState<string>('All')
+  const [folderFilter, setFolderFilter] = useState<string>('All')
+  const [tagFilter, setTagFilter] = useState<string>('')
   const [manageCollectionsOpen, setManageCollectionsOpen] = useState(false)
   const [confirmDeleteSource, setConfirmDeleteSource] = useState<string | null>(null)
   const [confirmReembed, setConfirmReembed] = useState<{
@@ -245,6 +247,46 @@ export default function KnowledgeBaseModal({
   const comboboxOptions = useMemo(() => {
     return Array.from(new Set([...KB_COLLECTIONS, ...knownCollections])).sort()
   }, [knownCollections])
+
+  const folderOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          storedFiles
+            .map((file) => file.folderPath?.trim())
+            .filter((folder): folder is string => Boolean(folder))
+        )
+      ).sort(),
+    [storedFiles]
+  )
+
+  const filteredStoredFiles = useMemo(() => {
+    const wantedTags = tagFilter
+      .split(',')
+      .map((tag) => tag.trim().toLocaleLowerCase())
+      .filter(Boolean)
+
+    return storedFiles.filter((file) => {
+      const collectionMatches =
+        collectionFilter === 'All'
+          ? true
+          : collectionFilter === UNCATEGORIZED_COLLECTION_KEY
+            ? file.collection === null
+            : file.collection === collectionFilter
+
+      const folderMatches =
+        folderFilter === 'All'
+          ? true
+          : folderFilter === '__unfiled__'
+            ? !file.folderPath
+            : file.folderPath === folderFilter
+
+      const fileTags = new Set((file.tags ?? []).map((tag) => tag.toLocaleLowerCase()))
+      const tagsMatch = wantedTags.every((tag) => fileTags.has(tag))
+
+      return collectionMatches && folderMatches && tagsMatch
+    })
+  }, [storedFiles, collectionFilter, folderFilter, tagFilter])
 
   // Per-file conditional warnings (RFC #883 section 6). `ok: false` means the
   // computation itself failed (Qdrant/DB/FS) -- distinct from `ok: true` with
@@ -822,6 +864,32 @@ export default function KnowledgeBaseModal({
                     <option value={UNCATEGORIZED_COLLECTION_KEY}>Uncategorized</option>
                   </select>
                 </label>
+                <label className="flex items-center gap-2 text-sm text-text-secondary">
+                  Folder:
+                  <select
+                    value={folderFilter}
+                    onChange={(e) => setFolderFilter(e.target.value)}
+                    className="rounded border border-border-subtle bg-surface-primary px-3 py-2 text-text-primary max-w-64"
+                  >
+                    <option value="All">All folders</option>
+                    {folderOptions.map((folder) => (
+                      <option key={folder} value={folder}>
+                        {folder}
+                      </option>
+                    ))}
+                    <option value="__unfiled__">Unfiled</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-text-secondary">
+                  Tags:
+                  <input
+                    type="text"
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    placeholder="manual, solar"
+                    className="w-40 rounded border border-border-subtle bg-surface-primary px-3 py-2 text-text-primary placeholder:text-text-muted"
+                  />
+                </label>
                 <StyledButton
                   variant="secondary"
                   size="md"
@@ -1209,17 +1277,7 @@ export default function KnowledgeBaseModal({
                   },
                 },
               ]}
-              data={groupAndSortKbFiles(
-                collectionFilter === 'All'
-                  ? storedFiles
-                  : storedFiles.filter((f) =>
-                      collectionFilter === UNCATEGORIZED_COLLECTION_KEY
-                        ? f.collection === null
-                        : f.collection === collectionFilter
-                    ),
-                sort,
-                expandedCollections
-              )}
+              data={groupAndSortKbFiles(filteredStoredFiles, sort, expandedCollections)}
               loading={isLoadingFiles}
             />
           </div>
