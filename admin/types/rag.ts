@@ -200,10 +200,12 @@ export type StoredFileInfo = {
   isUserUpload: boolean
   /** Subject/category tag, or null if uncategorized. */
   collection: string | null
-  /** Virtual library folder path, independent from the physical file path. */
-  folderPath: string | null
-  /** User-defined tags attached to the file and copied onto its chunks. */
-  tags: string[]
+  /** Virtual library folder path, independent from the physical file path.
+   * Optional for compatibility with legacy callers; getStoredFiles() supplies it. */
+  folderPath?: string | null
+  /** User-defined tags attached to the file and copied onto its chunks.
+   * Optional for compatibility with legacy callers; getStoredFiles() supplies it. */
+  tags?: string[]
   /** Whether this file's chunks are included in RAG search results. Toggling
    * this never deletes or re-embeds vectors — see #1119. */
   active: boolean
