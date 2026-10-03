@@ -242,8 +242,8 @@ export function groupAndSortKbFiles(
             uploadedAt: file.uploadedAt,
             isUserUpload: file.isUserUpload,
             collection: file.collection,
-            folderPath: file.folderPath ?? null,
-            tags: file.tags ?? [],
+            ...(file.folderPath ? { folderPath: file.folderPath } : {}),
+            ...(file.tags?.length ? { tags: file.tags } : {}),
             active: file.active,
           })
         }
@@ -264,8 +264,8 @@ export function groupAndSortKbFiles(
         uploadedAt: file.uploadedAt,
         isUserUpload: file.isUserUpload,
         collection: file.collection,
-        folderPath: file.folderPath ?? null,
-        tags: file.tags ?? [],
+        ...(file.folderPath ? { folderPath: file.folderPath } : {}),
+        ...(file.tags?.length ? { tags: file.tags } : {}),
         active: file.active,
       })
     }
