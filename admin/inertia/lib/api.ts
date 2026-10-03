@@ -1099,20 +1099,26 @@ class API {
     })()
   }
 
-  async uploadDocument(file: File, collection?: string) {
+  async uploadDocument(
+    file: File,
+    metadata: { collection?: string; folderPath?: string; tags?: string[] } = {}
+  ) {
     return catchInternal(async () => {
       const formData = new FormData()
       formData.append('file', file)
-      if (collection) formData.append('collection', collection)
-      const response = await this.client.post<{ message: string; file_path: string }>(
-        '/rag/upload',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
-      )
+      if (metadata.collection) formData.append('collection', metadata.collection)
+      if (metadata.folderPath) formData.append('folderPath', metadata.folderPath)
+      if (metadata.tags?.length) formData.append('tags', JSON.stringify(metadata.tags))
+      const response = await this.client.post<{
+        message: string
+        filePath?: string
+        folderPath?: string | null
+        tags?: string[]
+      }>('/rag/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
       return response.data
     })()
   }
@@ -1130,6 +1136,20 @@ class API {
         source,
         collection,
       })
+      return response.data
+    })()
+  }
+
+  async updateFileMetadata(
+    source: string,
+    update: { folderPath?: string | null; tags?: string[] }
+  ) {
+    return catchInternal(async () => {
+      const response = await this.client.patch<{
+        message: string
+        folderPath: string | null
+        tags: string[]
+      }>('/rag/files/metadata', { source, ...update })
       return response.data
     })()
   }
