@@ -1551,14 +1551,19 @@ export class RagService {
    */
   public async updateFileMetadata(
     source: string,
-    folderPath: string | null,
-    tags: string[]
-  ): Promise<{ success: boolean; message: string }> {
+    update: { folderPath?: string | null; tags?: string[] }
+  ): Promise<{ success: boolean; message: string; folderPath: string | null; tags: string[] }> {
     try {
       await this._ensureCollection(
         RagService.CONTENT_COLLECTION_NAME,
         RagService.EMBEDDING_DIMENSION
       )
+
+      const row = await KbIngestState.getOrCreate(source)
+      const folderPath =
+        update.folderPath !== undefined ? update.folderPath : row.folder_path ?? null
+      const tags =
+        update.tags !== undefined ? update.tags : parseStoredTags(row.tags_json)
 
       await this.qdrant!.setPayload(RagService.CONTENT_COLLECTION_NAME, {
         payload: {
@@ -1568,15 +1573,19 @@ export class RagService {
         filter: { must: [{ key: 'source', match: { value: source } }] },
       })
 
-      const row = await KbIngestState.getOrCreate(source)
       row.folder_path = folderPath
       row.tags_json = JSON.stringify(tags)
       await row.save()
 
-      return { success: true, message: 'Library metadata updated.' }
+      return { success: true, message: 'Library metadata updated.', folderPath, tags }
     } catch (error) {
       logger.error('[RAG] Error updating file library metadata:', error)
-      return { success: false, message: 'Error updating library metadata.' }
+      return {
+        success: false,
+        message: 'Error updating library metadata.',
+        folderPath: null,
+        tags: [],
+      }
     }
   }
 
