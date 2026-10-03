@@ -38,3 +38,14 @@ test('RAG search rejects scores outside zero-to-one', async () => {
     searchDocumentsSchema.validate({ query: 'test', minFinalScore: -0.1 })
   )
 })
+
+test('RAG search accepts folder and tag filters', async () => {
+  const result = await searchDocumentsSchema.validate({
+    query: 'battery',
+    folderPath: 'Vivienda/Solar/GoodWe',
+    tags: ['manual', 'inversor'],
+  })
+
+  assert.equal(result.folderPath, 'Vivienda/Solar/GoodWe')
+  assert.deepEqual(result.tags, ['manual', 'inversor'])
+})
