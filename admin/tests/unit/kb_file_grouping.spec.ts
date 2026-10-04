@@ -399,3 +399,30 @@ test('groupAndSortKbFiles uses UNCATEGORIZED_COLLECTION_KEY to expand null-colle
     ['loose_note.txt']
   )
 })
+
+
+test('groupAndSortKbFiles preserves virtual folder and tag metadata on expanded rows', () => {
+  const file: StoredFileInfo = {
+    source: '/app/storage/kb_uploads/goodwe-manual.pdf',
+    state: 'indexed',
+    chunksEmbedded: 42,
+    fileName: 'goodwe-manual.pdf',
+    size: 1024,
+    uploadedAt: '2026-10-03T00:00:00Z',
+    isUserUpload: true,
+    collection: 'solar',
+    folderPath: 'Vivienda/Solar/GoodWe',
+    tags: ['manual', 'inversor'],
+    active: true,
+  }
+
+  const groups = groupAndSortKbFiles(
+    [file],
+    { key: 'name', direction: 'asc' },
+    new Set(['solar'])
+  )
+  const row = groups.find((group) => !group.isCollectionHeader)
+
+  assert.equal(row?.folderPath, 'Vivienda/Solar/GoodWe')
+  assert.deepEqual(row?.tags, ['manual', 'inversor'])
+})
