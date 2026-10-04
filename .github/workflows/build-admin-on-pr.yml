@@ -20,6 +20,17 @@ jobs:
         run: npm ci
         working-directory: ./admin
 
+      - name: Run typecheck
+        run: npm run typecheck
+        working-directory: ./admin
+
+      - name: Run Jarvis/NOMAD bridge regression tests
+        run: |
+          node --import ts-node-maintained/register/esm --test tests/unit/kb_metadata.spec.ts
+          node --import ts-node-maintained/register/esm --test tests/unit/rag_search_validator.spec.ts
+          node --import ts-node-maintained/register/esm --test tests/unit/kb_file_grouping.spec.ts
+        working-directory: ./admin
+
       - name: Run build
         run: npm run build
         working-directory: ./admin
